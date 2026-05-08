@@ -1,0 +1,213 @@
+{% extends "base.html" %}
+
+{% block title %}检索历史 — 文献检索指导系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>检索历史</h1>
+    <p class="page-desc">所有检索记录自动保存在本地，最多保留 100 条</p>
+</div>
+
+<!-- 搜索历史 -->
+<div class="card">
+    <div class="card-body">
+        <div class="form-row">
+            <div class="form-group flex-2">
+                <label for="historySearch">搜索历史记录</label>
+                <input type="text" id="historySearch" class="form-input" placeholder="按主题搜索..." oninput="filterHistory()" />
+            </div>
+            <div class="form-group flex-0">
+                <label>&nbsp;</label>
+                <button class="btn btn-outline btn-danger-outline" onclick="clearAllHistory()">清空全部记录</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 加载动画 -->
+<div id="loadingSpinner" class="spinner-container" style="display:none;">
+    <div class="spinner"></div>
+    <p>加载中...</p>
+</div>
+
+<!-- 历史列表 -->
+<div id="historyListContainer">
+    <div id="historyList"></div>
+</div>
+
+<!-- 空状态 -->
+<div id="emptyState" class="empty-state" style="display:none;">
+    <div class="empty-icon">📋</div>
+    <h3>暂无检索记录</h3>
+    <p>执行文献检索后，记录将自动保存在这里</p>
+    <a href="{{ url_for('literature') }}" class="btn btn-primary" style="display:inline-block;margin-top:16px;text-decoration:none;">前往文献检索</a>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let allRecords = [];
+
+document.addEventListener('DOMContentLoaded', loadHistory);
+
+function loadHistory() {
+    document.getElementById('loadingSpinner').style.display = 'block';
+    document.getElementById('historyListContainer').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'none';
+
+    fetch('/api/history')
+        .then(res => res.json())
+        .then(data => {
+            document.getElementById('loadingSpinner').style.display = 'none';
+            allRecords = data.records || [];
+
+            if (allRecords.length === 0) {
+                document.getElementById('emptyState').style.display = 'block';
+                return;
+            }
+
+            document.getElementById('historyListContainer').style.display = 'block';
+            renderHistoryList(allRecords);
+        })
+        .catch(err => {
+            document.getElementById('loadingSpinner').style.display = 'none';
+            console.error(err);
+        });
+}
+
+function renderHistoryList(records) {
+    const container = document.getElementById('historyList');
+    let html = '';
+
+    records.forEach((r, idx) => {
+        const isSecondary = r.is_secondary;
+        const badge = isSecondary ? '<span class="badge badge-citation">二次检索</span>' : '';
+        const cnkiBadge = '<span class="query-db cnki-badge">知网</span>';
+        const wosBadge = '<span class="query-db wos-badge">WoS</span>';
+
+        html += `
+        <div class="card history-card" data-topic="${escapeHtml(r.topic).toLowerCase()}">
+            <div class="card-body">
+                <div class="history-header">
+                    <div class="history-info">
+                        <h3 class="history-topic">
+                            ${escapeHtml(r.topic)}
+                            ${badge}
+                        </h3>
+                        <div class="history-meta">
+                            <span class="history-time">${escapeHtml(r.timestamp)}</span>
+                            <span class="meta-sep">|</span>
+                            ${cnkiBadge} <span>${r.cnki_count} 篇</span>
+                            <span class="meta-sep">|</span>
+                            ${wosBadge} <span>${r.wos_count} 篇</span>
+                            <span class="meta-sep">|</span>
+                            <span>共 <strong>${r.total_count}</strong> 篇</span>
+                            ${r.citation_count > 0 ? `<span class="meta-sep">|</span><span>引用扩展 ${r.citation_count} 篇</span>` : ''}
+                        </div>
+                        ${r.is_secondary && r.primary_topic ? `<div class="history-primary">一次检索主题：${escapeHtml(r.primary_topic)}</div>` : ''}
+                    </div>
+                    <div class="history-actions">
+                        <button class="btn btn-outline btn-sm" onclick="viewDetail('${r.id}')">查看详情</button>
+                        <button class="btn btn-outline btn-sm btn-danger-outline" onclick="deleteRecord('${r.id}', this)">删除</button>
+                    </div>
+                </div>
+
+                <!-- 检索式 -->
+                <div class="history-queries">
+                    <div class="query-item">
+                        <span class="query-db cnki-badge">知网</span>
+                        <code>${escapeHtml(r.search_query_cnki || '—')}</code>
+                    </div>
+                    <div class="query-item">
+                        <span class="query-db wos-badge">WoS</span>
+                        <code>${escapeHtml(r.search_query_wos || '—')}</code>
+                    </div>
+                </div>
+
+                <!-- 预览前5篇标题 -->
+                ${r.top_titles && r.top_titles.length > 0 ? `
+                <div class="history-preview">
+                    <span class="preview-label">高被引论文预览：</span>
+                    <ol class="preview-list">
+                        ${r.top_titles.map((t, i) => `
+                            <li>
+                                <span class="preview-lang">[${t.language === 'zh' ? '中' : '英'}]</span>
+                                ${escapeHtml(t.title).substring(0, 80)}${t.title.length > 80 ? '...' : ''}
+                                <span class="preview-citations">(被引: ${t.citations})</span>
+                            </li>
+                        `).join('')}
+                    </ol>
+                </div>
+                ` : ''}
+            </div>
+        </div>`;
+    });
+
+    container.innerHTML = html;
+}
+
+function filterHistory() {
+    const query = document.getElementById('historySearch').value.trim().toLowerCase();
+    if (!query) {
+        renderHistoryList(allRecords);
+        return;
+    }
+
+    const filtered = allRecords.filter(r =>
+        r.topic.toLowerCase().includes(query)
+    );
+    renderHistoryList(filtered);
+
+    if (filtered.length === 0) {
+        document.getElementById('emptyState').style.display = 'block';
+        document.querySelector('.empty-state h3').textContent = '未找到匹配记录';
+        document.querySelector('.empty-state p').textContent = '尝试使用其他关键词搜索';
+        document.querySelector('.empty-state .btn-primary').style.display = 'none';
+    }
+}
+
+function viewDetail(id) {
+    window.location.href = `/history/${id}`;
+}
+
+function deleteRecord(id, btn) {
+    if (!confirm('确定要删除这条检索记录吗？')) return;
+
+    btn.disabled = true;
+    fetch(`/api/history/${id}`, { method: 'DELETE' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'deleted') {
+                loadHistory();
+            } else {
+                alert('删除失败：' + (data.error || '未知错误'));
+                btn.disabled = false;
+            }
+        })
+        .catch(err => {
+            alert('删除失败：' + err.message);
+            btn.disabled = false;
+        });
+}
+
+function clearAllHistory() {
+    if (!allRecords.length) return;
+    if (!confirm(`确定要清空全部 ${allRecords.length} 条检索记录吗？此操作不可恢复。`)) return;
+
+    fetch('/api/history/clear', { method: 'POST' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'cleared') {
+                loadHistory();
+            }
+        })
+        .catch(err => alert('清空失败：' + err.message));
+}
+
+function escapeHtml(text) {
+    const d = document.createElement('div');
+    d.textContent = text || '';
+    return d.innerHTML;
+}
+</script>
+{% endblock %}

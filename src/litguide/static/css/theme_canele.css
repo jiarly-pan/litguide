@@ -658,6 +658,109 @@ body {
     margin-top: 40px;
 }
 
+/* ===== 保存提示 ===== */
+.save-notice {
+    text-align: center;
+    padding: 10px 16px;
+    background: #E0D8C4;
+    color: #5A4A3A;
+    border-radius: var(--radius-sm);
+    margin-bottom: 16px;
+    font-size: 13px;
+    animation: fadeIn 0.3s ease;
+}
+.save-icon { font-weight: bold; }
+.save-link {
+    color: #5A4A3A;
+    font-weight: 600;
+    text-decoration: underline;
+}
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ===== 历史记录 ===== */
+.history-card { margin-bottom: 16px; }
+.history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 16px;
+    flex-wrap: wrap;
+}
+.history-info { flex: 1; min-width: 0; }
+.history-topic {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.history-meta {
+    font-size: 12px;
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.history-time { color: var(--text-light); }
+.meta-sep { color: var(--border); }
+.history-primary {
+    font-size: 12px;
+    color: var(--accent);
+    margin-top: 2px;
+}
+.history-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+.history-queries {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-light);
+}
+.history-preview {
+    margin-top: 10px;
+    padding: 8px 12px;
+    background: var(--bg);
+    border-radius: var(--radius-sm);
+}
+.preview-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-light);
+    margin-bottom: 4px;
+    display: block;
+}
+.preview-list {
+    padding-left: 18px;
+    font-size: 12px;
+    color: var(--text-muted);
+}
+.preview-list li { margin-bottom: 3px; }
+.preview-lang {
+    color: var(--primary-dark);
+    font-weight: 600;
+    font-size: 11px;
+}
+.preview-citations {
+    color: var(--accent);
+    font-size: 11px;
+}
+
+.btn-sm { padding: 5px 14px; font-size: 12px; }
+.btn-danger-outline {
+    color: var(--danger);
+    border-color: var(--danger);
+}
+.btn-danger-outline:hover { background: #FDE8E8; }
+
 /* ===== 响应式 ===== */
 @media (max-width: 768px) {
     .nav-container {

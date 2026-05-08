@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block title %}{{ record.topic }} — 检索历史详情{% endblock %}
+
+{% block content %}
+<!-- 返回按钮 -->
+<div class="page-header" style="text-align:left;padding-bottom:8px;">
+    <a href="{{ url_for('history_page') }}" class="btn btn-outline" style="text-decoration:none;">← 返回历史列表</a>
+</div>
+
+<div class="page-header" style="padding-top:0;">
+    <h1>{{ record.topic }}</h1>
+    <p class="page-desc">
+        检索时间：{{ record.timestamp }}
+        {% if record.is_secondary %} | <span class="badge badge-citation">二次检索</span> 一次检索：{{ record.primary_topic }}{% endif %}
+    </p>
+</div>
+
+<!-- 统计栏 -->
+<div class="stats-bar">
+    <div class="stat-item">
+        <span class="stat-num">{{ record.total_count }}</span>
+        <span class="stat-label">总结果</span>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+        <span class="stat-num">{{ record.cnki_count }}</span>
+        <span class="stat-label">知网 (CNKI)</span>
+    </div>
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+        <span class="stat-num">{{ record.wos_count }}</span>
+        <span class="stat-label">Web of Science</span>
+    </div>
+    {% if record.citation_count > 0 %}
+    <div class="stat-divider"></div>
+    <div class="stat-item">
+        <span class="stat-num">{{ record.citation_count }}</span>
+        <span class="stat-label">引用扩展</span>
+    </div>
+    {% endif %}
+</div>
+
+<!-- 检索式 -->
+<div class="query-display">
+    <div class="query-card">
+        <h4>使用的检索式</h4>
+        <div class="query-item">
+            <span class="query-db cnki-badge">知网</span>
+            <code>{{ record.search_query_cnki or '—' }}</code>
+        </div>
+        <div class="query-item">
+            <span class="query-db wos-badge">WoS</span>
+            <code>{{ record.search_query_wos or '—' }}</code>
+        </div>
+    </div>
+</div>
+
+<!-- 论文列表 -->
+<div class="card">
+    <div class="card-header">
+        <h2>检索结果（共 {{ record.total_count }} 篇）</h2>
+    </div>
+    <div class="card-body" style="padding:0;">
+        <div class="paper-list">
+            {% for p in record.papers %}
+            <div class="paper-item">
+                <div class="paper-rank">{{ loop.index }}</div>
+                <div class="paper-content">
+                    <div class="paper-title-row">
+                        <h3 class="paper-title">{{ p.title }}</h3>
+                        {% if p.database == 'cnki' %}
+                            <span class="query-db cnki-badge">知网</span>
+                        {% else %}
+                            <span class="query-db wos-badge">WoS</span>
+                        {% endif %}
+                        {% if p.is_from_citation %}
+                            <span class="badge badge-citation">引用扩展</span>
+                        {% endif %}
+                        <span class="badge {% if p.language == 'zh' %}badge-zh{% else %}badge-en{% endif %}">
+                            {{ '中' if p.language == 'zh' else '英' }}
+                        </span>
+                    </div>
+                    {% if p.language == 'en' and p.title_zh %}
+                    <div class="paper-title-zh">中文译名：{{ p.title_zh }}</div>
+                    {% endif %}
+                    <div class="paper-meta">
+                        {% if p.authors %}<span class="meta-authors">{{ p.authors }}</span>{% endif %}
+                        {% if p.year %}<span class="meta-year">{{ p.year }}</span>{% endif %}
+                        {% if p.source %}<span class="meta-source">{{ p.source }}</span>{% endif %}
+                        <span class="meta-citations">被引 <strong>{{ p.citations }}</strong> 次</span>
+                    </div>
+                    {% if p.abstract %}<div class="paper-abstract">{{ p.abstract[:200] }}{% if p.abstract|length > 200 %}...{% endif %}</div>{% endif %}
+                    {% if p.keywords %}<div class="paper-keywords">关键词：{{ p.keywords }}</div>{% endif %}
+                    <div class="paper-search-query">检索式：<code>{{ p.search_query or '—' }}</code></div>
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+<!-- 操作 -->
+<div class="text-center" style="margin: 20px 0;">
+    <button class="btn btn-accent" onclick="useAsSecondarySearch()">基于此结果进行二次检索</button>
+    <button class="btn btn-outline" onclick="deleteCurrentRecord()" style="margin-left:10px;">删除此记录</button>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+function useAsSecondarySearch() {
+    const topic = "{{ record.topic }}";
+    window.location.href = `/literature?topic=${encodeURIComponent(topic)}`;
+    // 提示用户在文献检索页面使用二次检索
+    setTimeout(() => {
+        const el = document.getElementById('searchTopic');
+        if (el) {
+            el.value = topic;
+            alert('请输入追加关键词后点击"二次检索"按钮');
+        }
+    }, 500);
+}
+
+function deleteCurrentRecord() {
+    if (!confirm('确定删除这条检索记录吗？')) return;
+    fetch('/api/history/{{ record.id }}', { method: 'DELETE' })
+        .then(res => res.json())
+        .then(data => {
+            if (data.status === 'deleted') {
+                window.location.href = '/history';
+            }
+        });
+}
+</script>
+{% endblock %}

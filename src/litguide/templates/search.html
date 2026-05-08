@@ -65,6 +65,12 @@
 <!-- 检索结果统计 -->
 <div id="statsBar" class="stats-bar" style="display:none;"></div>
 
+<!-- 保存提示 -->
+<div id="saveNotice" class="save-notice" style="display:none;">
+    <span class="save-icon">&#10003;</span> 检索结果已自动保存到历史记录 —
+    <a href="/history" class="save-link">查看历史记录</a>
+</div>
+
 <!-- 检索式展示 -->
 <div id="queryDisplay" class="query-display" style="display:none;"></div>
 
@@ -222,6 +228,11 @@ function displayResults(data) {
     const cnCount = allPapers.filter(p => p.database === 'cnki').length;
     const enCount = allPapers.filter(p => p.database === 'wos').length;
     const citCount = allPapers.filter(p => p.is_from_citation).length;
+    // 显示保存通知
+    const saveNotice = document.getElementById('saveNotice');
+    saveNotice.style.display = 'block';
+    setTimeout(() => { saveNotice.style.display = 'none'; }, 8000);
+
     statsBar.style.display = 'flex';
     statsBar.innerHTML = `
         <div class="stat-item">

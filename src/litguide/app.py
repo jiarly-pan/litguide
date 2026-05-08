@@ -9,12 +9,12 @@ from .search_formula import build_all_formulas
 from .filter_guide import generate_filter_advice
 from .searcher import search_literature
 from .session import get_session
+from . import history_store
 
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)
 
-# 主题列表
 THEMES = ["spring", "aurore", "canele"]
 
 
@@ -27,6 +27,8 @@ def _parse_type(type_str):
     }
     return mapping.get(type_str, PaperType.REVIEW)
 
+
+# ==================== 页面路由 ====================
 
 @app.route("/")
 def index():
@@ -48,6 +50,33 @@ def literature():
     return render_template("search.html", theme=theme, themes=THEMES)
 
 
+@app.route("/history")
+def history_page():
+    """检索历史页面。"""
+    theme = request.args.get("theme", session.get("theme", "spring"))
+    if theme not in THEMES:
+        theme = "spring"
+    session["theme"] = theme
+    return render_template("history.html", theme=theme, themes=THEMES)
+
+
+@app.route("/history/<record_id>")
+def history_detail(record_id):
+    """检索历史详情页 — 查看某次检索的完整结果。"""
+    theme = request.args.get("theme", session.get("theme", "spring"))
+    if theme not in THEMES:
+        theme = "spring"
+    session["theme"] = theme
+
+    record = history_store.get_record(record_id)
+    if not record:
+        return render_template("history.html", theme=theme, themes=THEMES, error="记录未找到")
+
+    return render_template("history_detail.html", theme=theme, themes=THEMES, record=record)
+
+
+# ==================== API 路由 ====================
+
 @app.route("/api/search-guidance", methods=["POST"])
 def api_search_guidance():
     """生成检索策略 API（原有功能）。"""
@@ -63,7 +92,6 @@ def api_search_guidance():
     formulas = build_all_formulas(zh_kw, en_kw)
     advice = generate_filter_advice(pt)
 
-    # 转化为可序列化的格式
     result = {
         "topic": topic,
         "paper_type": pt.value,
@@ -82,7 +110,6 @@ def api_search_guidance():
         },
     }
 
-    # 记录到会话
     sess = get_session()
     all_kw = [k.word for k in zh_kw + en_kw]
     sess.record_search(topic, pt.value, all_kw)
@@ -103,31 +130,25 @@ def api_search_literature():
     if not topic:
         return jsonify({"error": "请输入研究主题"}), 400
 
-    # 生成关键词
     zh_kw, en_kw = suggest_keywords(topic, PaperType.REVIEW)
     keywords_cn = [k.word for k in zh_kw]
     keywords_en = [k.word for k in en_kw]
 
-    # 如果有额外关键词（二次检索）
     if extra_keywords:
         extra = [k.strip() for k in extra_keywords.split() if k.strip()]
         keywords_cn.extend(extra)
         keywords_en.extend(extra)
 
-    # 生成检索式
-    from .search_formula import build_all_formulas
     all_formulas = build_all_formulas(zh_kw, en_kw)
     formula_cnki = next((f.formula for f in all_formulas if f.database == Database.CNKI), "")
     formula_wos = next((f.formula for f in all_formulas if f.database == Database.WOS), "")
 
-    # 二次检索：从 session 获取一检结果
     existing_papers = None
     if is_secondary:
         stored = session.get("last_search_results")
         if stored:
             existing_papers = _deserialize_papers(stored)
 
-    # 执行检索
     results = search_literature(
         topic=topic,
         keywords_cn=keywords_cn,
@@ -142,71 +163,67 @@ def api_search_literature():
         existing_papers=existing_papers,
     )
 
-    # 将结果存入 session 以便二次检索
     session["last_search_results"] = _serialize_papers(results.papers)
     session["last_topic"] = topic
 
-    return jsonify(_format_results(results))
+    # 格式化结果
+    formatted = _format_results(results)
+
+    # 自动保存到历史记录
+    cnki_count = len([p for p in results.papers if p.database == "cnki"])
+    wos_count = len([p for p in results.papers if p.database == "wos"])
+    cit_count = len([p for p in results.papers if p.is_from_citation])
+    record_id = history_store.save_search(
+        topic=topic,
+        search_query_cnki=formula_cnki,
+        search_query_wos=formula_wos,
+        total_count=len(results.papers),
+        cnki_count=cnki_count,
+        wos_count=wos_count,
+        citation_count=cit_count,
+        is_secondary=is_secondary,
+        primary_topic=primary_topic,
+        papers=formatted["papers"],
+    )
+    formatted["record_id"] = record_id
+
+    return jsonify(formatted)
 
 
-def _serialize_papers(papers):
-    """将论文列表序列化为可存储的字典列表。"""
-    return [{
-        "title": p.title,
-        "title_zh": p.title_zh,
-        "authors": p.authors,
-        "year": p.year,
-        "source": p.source,
-        "citations": p.citations,
-        "abstract": p.abstract,
-        "url": p.url,
-        "database": p.database,
-        "language": p.language,
-        "doi": p.doi,
-        "keywords": p.keywords,
-        "search_query": p.search_query,
-        "is_from_citation": p.is_from_citation,
-    } for p in papers]
+@app.route("/api/history", methods=["GET"])
+def api_list_history():
+    """获取检索历史列表。"""
+    query = request.args.get("q", "").strip()
+    if query:
+        records = history_store.search_history(query)
+    else:
+        records = history_store.list_records()
+    return jsonify({"records": records, "total": len(records)})
 
 
-def _deserialize_papers(data):
-    """从字典列表反序列化论文。"""
-    from .models import PaperResult
-    return [PaperResult(**d) for d in data]
+@app.route("/api/history/<record_id>", methods=["GET"])
+def api_get_history(record_id):
+    """获取单条检索历史详情。"""
+    record = history_store.get_record(record_id)
+    if not record:
+        return jsonify({"error": "记录未找到"}), 404
+    return jsonify(record)
 
 
-def _format_results(results):
-    """格式化检索结果为 JSON。"""
-    papers_json = []
-    for p in results.papers:
-        papers_json.append({
-            "title": p.title,
-            "title_zh": p.title_zh,
-            "authors": p.authors,
-            "year": p.year,
-            "source": p.source,
-            "citations": p.citations,
-            "abstract": p.abstract,
-            "url": p.url,
-            "database": p.database,
-            "language": p.language,
-            "doi": p.doi,
-            "keywords": p.keywords,
-            "search_query": p.search_query,
-            "is_from_citation": p.is_from_citation,
-        })
+@app.route("/api/history/<record_id>", methods=["DELETE"])
+def api_delete_history(record_id):
+    """删除单条检索历史。"""
+    ok = history_store.delete_record(record_id)
+    if ok:
+        return jsonify({"status": "deleted"})
+    return jsonify({"error": "记录未找到"}), 404
 
-    return {
-        "topic": results.topic,
-        "search_query_cnki": results.search_query_cnki,
-        "search_query_wos": results.search_query_wos,
-        "total_cnki": results.total_cnki,
-        "total_wos": results.total_wos,
-        "total_count": len(results.papers),
-        "is_secondary": results.is_secondary,
-        "primary_topic": results.primary_topic,
-        "papers": papers_json,
-    }
+
+@app.route("/api/history/clear", methods=["POST"])
+def api_clear_history():
+    """清空全部检索历史。"""
+    count = history_store.clear_all()
+    return jsonify({"status": "cleared", "count": count})
 
 
 @app.route("/api/switch-theme", methods=["POST"])
@@ -220,12 +237,53 @@ def api_switch_theme():
     return jsonify({"error": "无效主题"}), 400
 
 
+# ==================== 辅助函数 ====================
+
+def _serialize_papers(papers):
+    return [{
+        "title": p.title, "title_zh": p.title_zh, "authors": p.authors,
+        "year": p.year, "source": p.source, "citations": p.citations,
+        "abstract": p.abstract, "url": p.url, "database": p.database,
+        "language": p.language, "doi": p.doi, "keywords": p.keywords,
+        "search_query": p.search_query, "is_from_citation": p.is_from_citation,
+    } for p in papers]
+
+
+def _deserialize_papers(data):
+    from .models import PaperResult
+    return [PaperResult(**d) for d in data]
+
+
+def _format_results(results):
+    papers_json = []
+    for p in results.papers:
+        papers_json.append({
+            "title": p.title, "title_zh": p.title_zh, "authors": p.authors,
+            "year": p.year, "source": p.source, "citations": p.citations,
+            "abstract": p.abstract, "url": p.url, "database": p.database,
+            "language": p.language, "doi": p.doi, "keywords": p.keywords,
+            "search_query": p.search_query, "is_from_citation": p.is_from_citation,
+        })
+    return {
+        "topic": results.topic,
+        "search_query_cnki": results.search_query_cnki,
+        "search_query_wos": results.search_query_wos,
+        "total_cnki": results.total_cnki,
+        "total_wos": results.total_wos,
+        "total_count": len(results.papers),
+        "is_secondary": results.is_secondary,
+        "primary_topic": results.primary_topic,
+        "papers": papers_json,
+    }
+
+
 def main():
     """启动 Flask 开发服务器。"""
     print("文献检索指导系统 Web 版")
     print("访问地址: http://127.0.0.1:5000")
-    print("  - 主页 (检索策略): http://127.0.0.1:5000/")
-    print("  - 文献检索: http://127.0.0.1:5000/literature")
+    print("  - 主页 (检索策略):   http://127.0.0.1:5000/")
+    print("  - 文献检索:         http://127.0.0.1:5000/literature")
+    print("  - 检索历史:         http://127.0.0.1:5000/history")
     app.run(debug=True, host="127.0.0.1", port=5000)
 
 

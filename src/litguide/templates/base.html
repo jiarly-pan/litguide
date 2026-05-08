@@ -15,6 +15,7 @@
             <div class="nav-links">
                 <a href="{{ url_for('index') }}" class="nav-link {% if request.path == '/' %}active{% endif %}">检索策略</a>
                 <a href="{{ url_for('literature') }}" class="nav-link {% if request.path == '/literature' %}active{% endif %}">文献检索</a>
+                <a href="{{ url_for('history_page') }}" class="nav-link {% if request.path.startswith('/history') %}active{% endif %}">检索历史</a>
             </div>
             <div class="theme-switcher">
                 <span class="theme-label">主题：</span>
