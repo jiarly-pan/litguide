@@ -1,0 +1,369 @@
+{% extends "base.html" %}
+
+{% block title %}文献检索 — 文献检索指导系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>文献检索</h1>
+    <p class="page-desc">在知网 (CNKI) 和 Web of Science 中检索文献，综合中英文提供 50 篇参考论文</p>
+</div>
+
+<!-- 检索输入区 -->
+<div class="card">
+    <div class="card-body">
+        <div class="form-row">
+            <div class="form-group flex-3">
+                <label for="searchTopic">研究主题</label>
+                <input type="text" id="searchTopic" class="form-input" placeholder="例如：深度学习在医学影像中的应用" />
+            </div>
+            <div class="form-group flex-0">
+                <label>&nbsp;</label>
+                <button id="searchBtn" class="btn btn-primary" onclick="doSearch()">开始检索</button>
+            </div>
+        </div>
+        <div class="form-row form-options">
+            <label class="checkbox-label">
+                <input type="checkbox" id="useCitations" checked /> 包含引用文献扩展
+            </label>
+            <span class="option-note">前5篇高被引论文的引用文献也将纳入结果</span>
+        </div>
+        <div class="search-info">
+            <p>检索范围：知网 CNKI + Web of Science | 检索上限：每库 500 篇 | 综合提供 50 篇 | 英文标题附中文翻译</p>
+        </div>
+    </div>
+</div>
+
+<!-- 二次检索区 -->
+<div id="secondarySearchArea" class="card" style="display:none;">
+    <div class="card-header">
+        <h2>二次检索 <span class="badge">在首次检索结果中筛选</span></h2>
+    </div>
+    <div class="card-body">
+        <div class="form-row">
+            <div class="form-group flex-2">
+                <label for="secondaryKeywords">追加关键词（空格分隔）</label>
+                <input type="text" id="secondaryKeywords" class="form-input" placeholder="例如：Transformer 注意力机制" />
+            </div>
+            <div class="form-group flex-0">
+                <label>&nbsp;</label>
+                <button id="secondarySearchBtn" class="btn btn-accent" onclick="doSecondarySearch()">二次检索</button>
+            </div>
+            <div class="form-group flex-0">
+                <label>&nbsp;</label>
+                <button class="btn btn-outline" onclick="clearSecondarySearch()">清除筛选</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 加载动画 -->
+<div id="loadingSpinner" class="spinner-container" style="display:none;">
+    <div class="spinner"></div>
+    <p id="loadingText">正在检索文献...</p>
+</div>
+
+<!-- 检索结果统计 -->
+<div id="statsBar" class="stats-bar" style="display:none;"></div>
+
+<!-- 检索式展示 -->
+<div id="queryDisplay" class="query-display" style="display:none;"></div>
+
+<!-- 结果区域 -->
+<div id="resultArea" style="display:none;">
+
+    <!-- 结果表格 -->
+    <div class="card">
+        <div class="card-header">
+            <h2 id="resultCount">检索结果</h2>
+            <div class="result-tabs">
+                <button class="tab-btn active" onclick="filterByLang('all', this)">全部</button>
+                <button class="tab-btn" onclick="filterByLang('zh', this)">中文文献</button>
+                <button class="tab-btn" onclick="filterByLang('en', this)">英文文献</button>
+                <button class="tab-btn" onclick="filterByLang('citation', this)">引用扩展</button>
+            </div>
+        </div>
+        <div class="card-body" style="padding: 0;">
+            <div class="paper-list" id="paperList"></div>
+        </div>
+    </div>
+</div>
+
+<!-- 无结果提示 -->
+<div id="noResultArea" class="empty-state" style="display:none;">
+    <div class="empty-icon">📭</div>
+    <h3>未找到相关文献</h3>
+    <p>请尝试修改研究主题或减少关键词</p>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let allPapers = [];
+let currentFilter = 'all';
+let searchPerformed = false;
+let lastTopic = '';
+
+// 从 URL 参数获取预设主题
+document.addEventListener('DOMContentLoaded', function() {
+    const params = new URLSearchParams(window.location.search);
+    const topic = params.get('topic');
+    if (topic) {
+        document.getElementById('searchTopic').value = decodeURIComponent(topic);
+    }
+    // 回车键触发搜索
+    document.getElementById('searchTopic').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') doSearch();
+    });
+    document.getElementById('secondaryKeywords').addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') doSecondarySearch();
+    });
+});
+
+function doSearch() {
+    const topic = document.getElementById('searchTopic').value.trim();
+    if (!topic) {
+        alert('请输入研究主题。');
+        return;
+    }
+    lastTopic = topic;
+    searchPerformed = true;
+
+    showLoading('正在知网和 Web of Science 中检索文献...');
+    document.getElementById('searchBtn').disabled = true;
+    document.getElementById('resultArea').style.display = 'none';
+    document.getElementById('noResultArea').style.display = 'none';
+
+    fetch('/api/search-literature', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            topic: topic,
+            use_citations: document.getElementById('useCitations').checked
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        hideLoading();
+        document.getElementById('searchBtn').disabled = false;
+
+        if (data.error) {
+            alert('检索失败：' + data.error);
+            return;
+        }
+
+        allPapers = data.papers;
+        displayResults(data);
+        document.getElementById('secondarySearchArea').style.display = 'block';
+    })
+    .catch(err => {
+        hideLoading();
+        document.getElementById('searchBtn').disabled = false;
+        alert('请求失败：' + err.message);
+    });
+}
+
+function doSecondarySearch() {
+    if (!searchPerformed) {
+        alert('请先进行一次检索。');
+        return;
+    }
+
+    const extraKeywords = document.getElementById('secondaryKeywords').value.trim();
+    if (!extraKeywords) {
+        alert('请输入二次检索的关键词。');
+        return;
+    }
+
+    showLoading('正在一次检索结果中筛选...');
+    document.getElementById('secondarySearchBtn').disabled = true;
+
+    fetch('/api/search-literature', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            topic: lastTopic,
+            is_secondary: true,
+            use_citations: false,
+            extra_keywords: extraKeywords,
+            primary_topic: lastTopic
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        hideLoading();
+        document.getElementById('secondarySearchBtn').disabled = false;
+
+        if (data.error) {
+            alert('二次检索失败：' + data.error);
+            return;
+        }
+
+        allPapers = data.papers;
+        currentFilter = 'all';
+        resetTabs();
+        displayResults(data);
+    })
+    .catch(err => {
+        hideLoading();
+        document.getElementById('secondarySearchBtn').disabled = false;
+        alert('请求失败：' + err.message);
+    });
+}
+
+function clearSecondarySearch() {
+    document.getElementById('secondaryKeywords').value = '';
+    // 重新执行一次检索
+    doSearch();
+}
+
+function displayResults(data) {
+    // 统计栏
+    const statsBar = document.getElementById('statsBar');
+    const cnCount = allPapers.filter(p => p.database === 'cnki').length;
+    const enCount = allPapers.filter(p => p.database === 'wos').length;
+    const citCount = allPapers.filter(p => p.is_from_citation).length;
+    statsBar.style.display = 'flex';
+    statsBar.innerHTML = `
+        <div class="stat-item">
+            <span class="stat-num">${data.total_count || allPapers.length}</span>
+            <span class="stat-label">总结果</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+            <span class="stat-num">${cnCount}</span>
+            <span class="stat-label">知网 (CNKI)</span>
+        </div>
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+            <span class="stat-num">${enCount}</span>
+            <span class="stat-label">Web of Science</span>
+        </div>
+        ${citCount > 0 ? `
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+            <span class="stat-num">${citCount}</span>
+            <span class="stat-label">引用扩展</span>
+        </div>` : ''}
+        <div class="stat-divider"></div>
+        <div class="stat-item">
+            <span class="stat-num">${data.is_secondary ? '二次检索' : '一次检索'}</span>
+            <span class="stat-label">检索类型</span>
+        </div>
+    `;
+
+    // 检索式展示
+    const queryDisplay = document.getElementById('queryDisplay');
+    queryDisplay.style.display = 'block';
+    queryDisplay.innerHTML = `
+        <div class="query-card">
+            <h4>使用的检索式</h4>
+            <div class="query-item">
+                <span class="query-db cnki-badge">知网</span>
+                <code>${escapeHtml(data.search_query_cnki || '—')}</code>
+            </div>
+            <div class="query-item">
+                <span class="query-db wos-badge">WoS</span>
+                <code>${escapeHtml(data.search_query_wos || '—')}</code>
+            </div>
+        </div>
+    `;
+
+    // 结果数量
+    document.getElementById('resultCount').textContent = `检索结果（共 ${data.total_count || allPapers.length} 篇）`;
+
+    // 渲染论文列表
+    document.getElementById('resultArea').style.display = 'block';
+    renderPaperList(allPapers);
+}
+
+function renderPaperList(papers) {
+    const list = document.getElementById('paperList');
+
+    if (papers.length === 0) {
+        document.getElementById('noResultArea').style.display = 'block';
+        list.innerHTML = '';
+        return;
+    }
+
+    document.getElementById('noResultArea').style.display = 'none';
+
+    let html = '';
+    papers.forEach((p, idx) => {
+        const isEn = p.language === 'en';
+        const isCitation = p.is_from_citation;
+        const dbBadge = p.database === 'cnki'
+            ? '<span class="query-db cnki-badge">知网</span>'
+            : '<span class="query-db wos-badge">WoS</span>';
+        const citBadge = isCitation ? '<span class="badge badge-citation">引用扩展</span>' : '';
+        const langBadge = isEn ? '<span class="badge badge-en">EN</span>' : '<span class="badge badge-zh">中</span>';
+
+        html += `
+        <div class="paper-item" data-lang="${p.language}" data-citation="${isCitation}">
+            <div class="paper-rank">${idx + 1}</div>
+            <div class="paper-content">
+                <div class="paper-title-row">
+                    <h3 class="paper-title">${escapeHtml(p.title)}</h3>
+                    ${dbBadge}
+                    ${citBadge}
+                    ${langBadge}
+                </div>
+                ${isEn && p.title_zh ? `<div class="paper-title-zh">中文译名：${escapeHtml(p.title_zh)}</div>` : ''}
+                <div class="paper-meta">
+                    ${p.authors ? `<span class="meta-authors">${escapeHtml(p.authors)}</span>` : ''}
+                    ${p.year ? `<span class="meta-year">${escapeHtml(p.year)}</span>` : ''}
+                    ${p.source ? `<span class="meta-source">${escapeHtml(p.source)}</span>` : ''}
+                    <span class="meta-citations">被引 <strong>${p.citations}</strong> 次</span>
+                </div>
+                ${p.abstract ? `<div class="paper-abstract">${escapeHtml(p.abstract).substring(0, 200)}...</div>` : ''}
+                ${p.keywords ? `<div class="paper-keywords">关键词：${escapeHtml(p.keywords)}</div>` : ''}
+                <div class="paper-search-query">
+                    检索式：<code>${escapeHtml(p.search_query || '—')}</code>
+                </div>
+            </div>
+        </div>`;
+    });
+
+    list.innerHTML = html;
+    document.getElementById('resultCount').textContent = `检索结果（共 ${papers.length} 篇）`;
+}
+
+function filterByLang(lang, btn) {
+    currentFilter = lang;
+
+    // 更新 tab 状态
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+
+    if (lang === 'all') {
+        renderPaperList(allPapers);
+    } else if (lang === 'citation') {
+        renderPaperList(allPapers.filter(p => p.is_from_citation));
+    } else {
+        renderPaperList(allPapers.filter(p => p.language === lang));
+    }
+}
+
+function resetTabs() {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelector('.tab-btn').classList.add('active');
+}
+
+function showLoading(msg) {
+    document.getElementById('loadingText').textContent = msg;
+    document.getElementById('loadingSpinner').style.display = 'block';
+    document.getElementById('statsBar').style.display = 'none';
+    document.getElementById('queryDisplay').style.display = 'none';
+    document.getElementById('resultArea').style.display = 'none';
+}
+
+function hideLoading() {
+    document.getElementById('loadingSpinner').style.display = 'none';
+}
+
+function escapeHtml(text) {
+    const d = document.createElement('div');
+    d.textContent = text || '';
+    return d.innerHTML;
+}
+</script>
+{% endblock %}

@@ -1,0 +1,199 @@
+{% extends "base.html" %}
+
+{% block title %}检索策略 — 文献检索指导系统{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h1>检索策略生成</h1>
+    <p class="page-desc">输入研究主题，获取推荐检索词、检索式和筛选建议</p>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div class="form-row">
+            <div class="form-group flex-3">
+                <label for="topicInput">研究主题</label>
+                <input type="text" id="topicInput" class="form-input" placeholder="例如：深度学习在医学影像中的应用" />
+            </div>
+            <div class="form-group flex-1">
+                <label for="typeSelect">文献类型</label>
+                <select id="typeSelect" class="form-input">
+                    <option value="综述型">综述型</option>
+                    <option value="应用/方法型">应用/方法型</option>
+                    <option value="前沿探索型">前沿探索型</option>
+                    <option value="对比分析型">对比分析型</option>
+                </select>
+            </div>
+            <div class="form-group flex-0">
+                <label>&nbsp;</label>
+                <button id="searchGuidanceBtn" class="btn btn-primary" onclick="generateGuidance()">
+                    生成检索策略
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 加载动画 -->
+<div id="loadingSpinner" class="spinner-container" style="display:none;">
+    <div class="spinner"></div>
+    <p>正在生成检索策略...</p>
+</div>
+
+<!-- 结果区域 -->
+<div id="resultArea" class="result-area" style="display:none;">
+    <!-- 检索词 -->
+    <div class="card" id="keywordsCard" style="display:none;">
+        <div class="card-header">
+            <h2 class="section-icon">1. 推荐检索词</h2>
+        </div>
+        <div class="card-body" id="keywordsContent"></div>
+    </div>
+
+    <!-- 检索式 -->
+    <div class="card" id="formulasCard" style="display:none;">
+        <div class="card-header">
+            <h2 class="section-icon">2. 推荐检索式</h2>
+        </div>
+        <div class="card-body" id="formulasContent"></div>
+    </div>
+
+    <!-- 筛选建议 -->
+    <div class="card" id="adviceCard" style="display:none;">
+        <div class="card-header">
+            <h2 class="section-icon">3. 筛选建议</h2>
+        </div>
+        <div class="card-body" id="adviceContent"></div>
+    </div>
+
+    <!-- 跳转到文献检索 -->
+    <div class="card" id="gotoSearchCard" style="display:none;">
+        <div class="card-body text-center">
+            <p>获取了检索策略后，可以使用以下按钮直接进行文献检索：</p>
+            <button class="btn btn-accent" onclick="gotoLiteratureSearch()">
+                前往文献检索页面
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+let currentTopic = '';
+
+function generateGuidance() {
+    const topic = document.getElementById('topicInput').value.trim();
+    if (!topic) {
+        alert('请输入研究主题。');
+        return;
+    }
+    currentTopic = topic;
+
+    // 显示加载动画
+    document.getElementById('loadingSpinner').style.display = 'block';
+    document.getElementById('resultArea').style.display = 'none';
+    document.getElementById('searchGuidanceBtn').disabled = true;
+
+    fetch('/api/search-guidance', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({
+            topic: topic,
+            paper_type: document.getElementById('typeSelect').value
+        })
+    })
+    .then(res => res.json())
+    .then(data => {
+        document.getElementById('loadingSpinner').style.display = 'none';
+        document.getElementById('searchGuidanceBtn').disabled = false;
+
+        if (data.error) {
+            alert('生成失败：' + data.error);
+            return;
+        }
+
+        displayGuidance(data);
+    })
+    .catch(err => {
+        document.getElementById('loadingSpinner').style.display = 'none';
+        document.getElementById('searchGuidanceBtn').disabled = false;
+        alert('请求失败：' + err.message);
+    });
+}
+
+function displayGuidance(data) {
+    document.getElementById('resultArea').style.display = 'block';
+
+    // 检索词
+    const kwCard = document.getElementById('keywordsCard');
+    kwCard.style.display = 'block';
+    let kwHtml = '<div class="kw-section"><h3 class="kw-lang-title">中文检索词</h3>';
+    data.keywords_zh.forEach(k => {
+        const star = k.is_primary ? '<span class="star">★</span>' : '<span class="star dim">·</span>';
+        const cls = k.is_primary ? 'kw-primary' : '';
+        kwHtml += `<div class="kw-item ${cls}">${star} <span class="kw-word">${escapeHtml(k.word)}</span><span class="kw-rationale"> — ${escapeHtml(k.rationale)}</span></div>`;
+    });
+    kwHtml += '</div>';
+
+    kwHtml += '<div class="kw-section"><h3 class="kw-lang-title">英文检索词</h3>';
+    data.keywords_en.forEach(k => {
+        const star = k.is_primary ? '<span class="star">★</span>' : '<span class="star dim">·</span>';
+        const cls = k.is_primary ? 'kw-primary' : '';
+        kwHtml += `<div class="kw-item ${cls}">${star} <span class="kw-word">${escapeHtml(k.word)}</span><span class="kw-rationale"> — ${escapeHtml(k.rationale)}</span></div>`;
+    });
+    kwHtml += '</div>';
+    document.getElementById('keywordsContent').innerHTML = kwHtml;
+
+    // 检索式
+    const fmCard = document.getElementById('formulasCard');
+    fmCard.style.display = 'block';
+    let fmHtml = '';
+    data.formulas.forEach(f => {
+        fmHtml += `<div class="formula-block">
+            <h3 class="formula-db">【${escapeHtml(f.database)}】(${escapeHtml(f.language)})</h3>
+            <div class="formula-text">${escapeHtml(f.formula)}</div>
+            <div class="formula-note">${escapeHtml(f.note)}</div>
+        </div>`;
+    });
+    document.getElementById('formulasContent').innerHTML = fmHtml;
+
+    // 筛选建议
+    const advCard = document.getElementById('adviceCard');
+    advCard.style.display = 'block';
+    const w = data.filter_advice.weights;
+    let advHtml = `
+        <div class="weights-row">
+            <span class="weight-badge">相关性 ${w.relevance}%</span>
+            <span class="weight-badge">引用量 ${w.citations}%</span>
+            <span class="weight-badge">时效性 ${w.recency}%</span>
+        </div>
+        <div class="advice-item"><strong>年份策略：</strong>${escapeHtml(data.filter_advice.year_strategy)}</div>
+        <div class="advice-item"><strong>来源推荐：</strong>${escapeHtml(data.filter_advice.source_strategy)}</div>
+        <h3 class="advice-tips-title">操作建议</h3>
+        <ol class="tips-list">`;
+    data.filter_advice.tips.forEach(t => {
+        advHtml += `<li>${escapeHtml(t)}</li>`;
+    });
+    advHtml += '</ol>';
+    document.getElementById('adviceContent').innerHTML = advHtml;
+    document.getElementById('gotoSearchCard').style.display = 'block';
+}
+
+function gotoLiteratureSearch() {
+    const topic = encodeURIComponent(currentTopic);
+    window.location.href = `/literature?topic=${topic}`;
+}
+
+function escapeHtml(text) {
+    const d = document.createElement('div');
+    d.textContent = text;
+    return d.innerHTML;
+}
+
+// 回车键触发搜索
+document.getElementById('topicInput').addEventListener('keydown', function(e) {
+    if (e.key === 'Enter') generateGuidance();
+});
+</script>
+{% endblock %}

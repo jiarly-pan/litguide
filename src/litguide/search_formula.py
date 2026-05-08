@@ -38,33 +38,10 @@ def build_formula_wos(keywords: list[KeywordEntry]) -> SearchFormula:
     )
 
 
-def build_formula_semantic_scholar(keywords: list[KeywordEntry]) -> SearchFormula:
-    """构建 Semantic Scholar 检索指导。"""
-    picked = _pick_keywords(keywords, 3)
-    return SearchFormula(
-        database=Database.SEMANTIC_SCHOLAR,
-        formula=f'{" ".join(picked)}',
-        note="Semantic Scholar 支持自然语言搜索，可直接输入关键词组合，然后用左侧过滤器限定年份和领域",
-    )
-
-
-def build_formula_crossref(keywords: list[KeywordEntry]) -> SearchFormula:
-    """构建 Crossref 检索式。"""
-    picked = _pick_keywords(keywords, 3)
-    formula = f'/works?query={"+".join(picked)}&filter=type:journal-article&rows=50'
-    return SearchFormula(
-        database=Database.CROSSREF,
-        formula=formula,
-        note="Crossref REST API，免费无需 Key，返回 DOI + 元数据，可通过 filter 限定文献类型",
-    )
-
-
 # 构建器注册表
 _BUILDERS = {
     Database.CNKI: build_formula_cnki,
     Database.WOS: build_formula_wos,
-    Database.SEMANTIC_SCHOLAR: build_formula_semantic_scholar,
-    Database.CROSSREF: build_formula_crossref,
 }
 
 

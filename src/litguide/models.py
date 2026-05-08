@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
+from typing import Optional
 
 
 class PaperType(Enum):
@@ -19,8 +20,6 @@ class Database(Enum):
     """支持的学术数据库"""
     CNKI = ("知网 CNKI", "中文")
     WOS = ("Web of Science", "英文")
-    SEMANTIC_SCHOLAR = ("Semantic Scholar", "英文")
-    CROSSREF = ("Crossref", "英文")
 
     def __init__(self, label, language):
         self.label = label
@@ -55,8 +54,6 @@ SOURCE_STRATEGY = {
 DB_SYNTAX = {
     Database.CNKI:              'SU="{核心词}" * (KY="{词1}" + KY="{词2}")',
     Database.WOS:               'TS=("{keyword1}" AND "{keyword2}")',
-    Database.SEMANTIC_SCHOLAR:  '自然语言搜索 + 领域过滤器',
-    Database.CROSSREF:          '/works?query={keyword1}+{keyword2}&filter=type:journal-article',
 }
 
 
@@ -66,7 +63,7 @@ class KeywordEntry:
     word: str
     language: str       # "zh" | "en"
     is_primary: bool    # True = 主关键词 ★
-    rationale: str = "" # 推荐理由
+    rationale: str = ""  # 推荐理由
 
 
 @dataclass
@@ -90,9 +87,41 @@ class FilterAdvice:
 @dataclass
 class SearchGuidance:
     """一次完整的检索指导输出"""
-    topic: str                          # 用户研究方向
-    paper_type: PaperType                # 文献类型
-    keywords_zh: list[KeywordEntry]      # 中文检索词
-    keywords_en: list[KeywordEntry]      # 英文检索词
-    formulas: list[SearchFormula]        # 各数据库检索式
-    filter_advice: FilterAdvice          # 筛选建议
+    topic: str
+    paper_type: PaperType
+    keywords_zh: list[KeywordEntry]
+    keywords_en: list[KeywordEntry]
+    formulas: list[SearchFormula]
+    filter_advice: FilterAdvice
+
+
+@dataclass
+class PaperResult:
+    """单篇论文检索结果"""
+    title: str                  # 论文标题（英文论文保留英文标题）
+    title_zh: str = ""          # 英文论文的中文翻译标题
+    authors: str = ""           # 作者
+    year: str = ""              # 发表年份
+    source: str = ""            # 来源期刊/会议
+    citations: int = 0          # 被引量
+    abstract: str = ""          # 摘要
+    url: str = ""               # 论文链接
+    database: str = ""          # 来源数据库 (cnki/wos)
+    language: str = "zh"        # 语言
+    doi: str = ""               # DOI
+    keywords: str = ""          # 关键词
+    search_query: str = ""      # 使用的检索式
+    is_from_citation: bool = False  # 是否来自引用扩展
+
+
+@dataclass
+class SearchResults:
+    """检索结果集"""
+    topic: str                  # 搜索主题
+    search_query_cnki: str = "" # 知网检索式
+    search_query_wos: str = ""  # WoS检索式
+    total_cnki: int = 0         # 知网搜索结果总数
+    total_wos: int = 0          # WoS搜索结果总数
+    papers: list[PaperResult] = field(default_factory=list)  # 论文列表
+    is_secondary: bool = False  # 是否为二次检索
+    primary_topic: str = ""     # 一次检索的主题
